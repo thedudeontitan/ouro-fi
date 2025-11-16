@@ -61,7 +61,7 @@ export default function LandingPage() {
     },
     {
       title: "Leverage Trading",
-      description: "Trade with up to 10x leverage on major assets like ETH, BTC, SOL, and ALGO",
+      description: "Trade with up to 100x leverage on major assets like ETH, BTC, SOL, and ALGO",
       icon: "⚡",
     },
     {
@@ -142,8 +142,6 @@ export default function LandingPage() {
             color: '#eceff4'
           }}
           variants={item}
-          whileHover={{ scale: 1.02 }}
-          transition={{ type: "spring", stiffness: 300 }}
         >
 
           {/* Background Pattern */}
@@ -193,7 +191,6 @@ export default function LandingPage() {
                     color: '#eceff4',
                   }}
                   onClick={() => navigate("/trade/ALGOUSD")}
-                  whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -223,12 +220,10 @@ export default function LandingPage() {
                   backgroundColor: 'rgba(255, 255, 255, 0.1)',
                   border: '1px solid rgba(255, 255, 255, 0.2)'
                 }}
-                whileHover={{ scale: 1.05, y: -5 }}
-                transition={{ type: "spring", stiffness: 300 }}
               >
                 Trade Major Assets
                 <div className="text-base font-normal mt-2 opacity-70">
-                  ETH, BTC, SOL, and ALGO with up to 10x leverage
+                  ETH, BTC, SOL, and ALGO with up to 100x leverage
                 </div>
               </motion.div>
               <motion.div
@@ -237,10 +232,9 @@ export default function LandingPage() {
                   backgroundColor: 'rgba(255, 255, 255, 0.1)',
                   border: '1px solid rgba(255, 255, 255, 0.2)'
                 }}
-                whileHover={{ scale: 1.05, y: -5 }}
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.7, duration: 0.5, type: "spring", stiffness: 300 }}
+                transition={{ delay: 0.7, duration: 0.5 }}
               >
                 Ultra-Low Latency
                 <div className="text-base font-normal mt-2 opacity-70">
@@ -277,7 +271,7 @@ export default function LandingPage() {
                   animate={{ scale: 1 }}
                   transition={{ delay: 0.9, type: "spring", stiffness: 200 }}
                 >
-                  10x
+                  100x
                 </motion.span>
                 <span className="text-xl opacity-80">Max Leverage</span>
               </motion.div>
@@ -324,13 +318,7 @@ export default function LandingPage() {
                   border: '1px solid rgba(255, 255, 255, 0.1)'
                 }}
                 variants={item}
-                whileHover={{
-                  scale: 1.05,
-                  y: -10,
-                  backgroundColor: "rgba(255, 255, 255, 0.1)",
-                }}
                 whileTap={{ scale: 0.95 }}
-                transition={{ type: "spring", stiffness: 300 }}
               >
                 <div className="flex items-center space-x-3 mb-6">
                   <div className="w-12 h-12 rounded-xl flex items-center justify-center"
@@ -397,8 +385,6 @@ export default function LandingPage() {
                   border: '1px solid rgba(255, 255, 255, 0.1)'
                 }}
                 variants={item}
-                whileHover={{ scale: 1.05, y: -5 }}
-                transition={{ type: "spring", stiffness: 300 }}
               >
                 <div className="h-14 w-14 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300"
                      style={{
@@ -562,7 +548,7 @@ export default function LandingPage() {
             </p>
             <button
               onClick={() => navigate("/trade/ALGOUSD")}
-              className="px-10 py-6 rounded-2xl font-bold text-lg transition-all duration-300 hover:scale-105"
+              className="px-10 py-6 rounded-2xl font-bold text-lg transition-all duration-300"
               style={{
                 backgroundColor: '#a3be8c',
                 color: '#242931',

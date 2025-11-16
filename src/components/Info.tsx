@@ -4,17 +4,17 @@ export default function Info() {
   return (
     <div id="text" className="col-span-2 px-4 py-4">
       <h1 className="pb-1 pt-0 text-3xl font-medium">
-        Welcome to Fuel
+        Welcome to Velocity Finance
       </h1>
       <p>
-        This Vite + React template was bootstrapped with the{" "}
+        This perpetual DEX is powered by Algorand smart contracts, offering{" "}
         <a
-          href="https://docs.fuel.network/docs/fuels-ts/fuels-cli/#getting-started"
+          href="https://developer.algorand.org/"
           target="_blank"
           className="text-green-500/80 transition-colors hover:text-green-500"
           rel="noreferrer"
         >
-          Fuels CLI
+          fast, secure, and scalable trading
         </a>
       </p>
       <p className="pt-6">
@@ -29,12 +29,12 @@ export default function Info() {
         </a>
       </p>
       <a
-        href="https://docs.fuel.network/docs"
+        href="https://developer.algorand.org/"
         target="_blank"
         className="inline-block mt-6 text-green-500/80 transition-colors hover:text-green-500 w-full"
         rel="noreferrer"
       >
-        Fuel Docs
+        Algorand Docs
       </a>
       <a
         href={playgroundUrl}
@@ -42,7 +42,7 @@ export default function Info() {
         className="inline-block text-green-500/80 transition-colors hover:text-green-500 w-full"
         rel="noreferrer"
       >
-        GraphQL Playground
+        Indexer API
       </a>
     </div>
   );

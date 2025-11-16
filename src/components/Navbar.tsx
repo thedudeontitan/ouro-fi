@@ -1,8 +1,9 @@
 import { Menu, MenuButton, MenuItem, MenuItems } from "@headlessui/react";
-import { useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Symbols } from "../types";
+import React, { useState } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useWallet } from "@txnlab/use-wallet-react";
+import { formatAddress, formatBalance } from "../services/algorand/modern-wallet";
 
 const navContainer = {
   hidden: { y: -100, opacity: 0 },
@@ -30,22 +31,62 @@ const navItem = {
 };
 
 export default function Navbar() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [account, setAccount] = useState("");
-
-  const navigate = useNavigate();
   const location = useLocation();
+  const {
+    wallets,
+    activeWallet,
+    activeAddress,
+    algodClient
+  } = useWallet();
 
-  const connect = () => {
-    // Placeholder for Algorand wallet connection
-    setIsConnected(true);
-    setAccount("ALGO...4x2p");
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [accountInfo, setAccountInfo] = useState<any>(null);
+
+  // Load account info when active address changes
+  React.useEffect(() => {
+    const loadAccountInfo = async () => {
+      if (activeAddress && algodClient) {
+        try {
+          const info = await algodClient.accountInformation(activeAddress).do();
+          setAccountInfo(info);
+        } catch (err) {
+          console.warn('Failed to load account info:', err);
+        }
+      } else {
+        setAccountInfo(null);
+      }
+    };
+    loadAccountInfo();
+  }, [activeAddress, algodClient]);
+
+  const handleConnect = async (walletId: string) => {
+    const wallet = wallets?.find(w => w.id === walletId);
+    if (!wallet) return;
+
+    setIsConnecting(true);
+    try {
+      await wallet.connect();
+      setShowWalletModal(false);
+    } catch (err) {
+      console.error('Failed to connect wallet:', err);
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
-  const disconnect = () => {
-    setIsConnected(false);
-    setAccount("");
+  const handleDisconnect = async () => {
+    if (activeWallet) {
+      try {
+        await activeWallet.disconnect();
+      } catch (err) {
+        console.error('Failed to disconnect wallet:', err);
+      }
+    }
   };
+
+  const algoBalance = accountInfo?.amount || 0;
+  const isConnected = Boolean(activeWallet && activeAddress);
 
   return (
     <motion.div
@@ -148,26 +189,26 @@ export default function Navbar() {
           </Link>
         </motion.div>
 
-        {/* Right side - Wallet connection */}
+        {/* Right side - Real Wallet connection */}
         <motion.div className="flex items-center space-x-4" variants={navItem}>
           {!isConnected ? (
             <motion.button
-              onClick={connect}
+              onClick={() => setShowWalletModal(true)}
               className="px-6 py-2 font-semibold transition-colors hover:opacity-90"
               style={{
-                backgroundColor: '#a3be8c',
-                color: '#000',
-                borderRadius: 'var(--rk-radii-connectButton)',
-                border: 'none',
-                boxShadow: 'var(--rk-shadows-connectButton)'
+                backgroundColor: '#5e81ac',
+                color: '#eceff4',
+                borderRadius: '8px',
+                border: 'none'
               }}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.5, type: "spring", stiffness: 200 }}
+              disabled={isConnecting}
             >
-              Sign Up
+              {isConnecting ? 'Connecting...' : 'Connect Wallet'}
             </motion.button>
           ) : (
             <motion.div
@@ -180,34 +221,43 @@ export default function Navbar() {
                 className="rounded-lg px-4 py-2"
                 style={{
                   backgroundColor: '#3b4252',
-                  borderRadius: 'var(--rk-radii-connectButton)'
                 }}
                 whileHover={{ scale: 1.05 }}
               >
-                <span className="font-mono text-sm" style={{
-                  color: '#eceff4'
-                }}>{account}</span>
+                <div className="text-right">
+                  <div className="font-mono text-sm" style={{ color: '#eceff4' }}>
+                    {activeAddress ? formatAddress(activeAddress) : 'Connected'}
+                  </div>
+                  <div className="text-xs" style={{ color: '#d8dee9' }}>
+                    {formatBalance(algoBalance)} ALGO
+                  </div>
+                </div>
               </motion.div>
               <Menu as="div" className="relative">
                 <MenuButton className="flex items-center space-x-2 rounded-lg px-3 py-2 transition-colors hover:opacity-80" style={{
-                  backgroundColor: '#3b4252',
-                  borderRadius: 'var(--rk-radii-connectButton)'
+                  backgroundColor: '#3b4252'
                 }}>
-                  <div className="w-6 h-6 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"></div>
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-6 h-6 rounded-full" style={{ backgroundColor: '#5e81ac' }}></div>
+                  <svg className="w-4 h-4" style={{ color: '#d8dee9' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </MenuButton>
-                <MenuItems className="absolute right-0 mt-2 w-48 bg-[#262626] border border-gray-700 rounded-lg shadow-lg">
+                <MenuItems className="absolute right-0 mt-2 w-48 rounded-lg shadow-lg" style={{
+                  backgroundColor: '#3b4252',
+                  border: '1px solid #434c5e'
+                }}>
                   <MenuItem>
-                    <Link to="/profile" className="block px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg">
+                    <Link to="/profile" className="block px-4 py-2 transition-colors hover:opacity-80 rounded-lg" style={{
+                      color: '#d8dee9'
+                    }}>
                       Profile
                     </Link>
                   </MenuItem>
                   <MenuItem>
                     <button
-                      onClick={disconnect}
-                      className="block w-full text-left px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-lg"
+                      onClick={handleDisconnect}
+                      className="block w-full text-left px-4 py-2 transition-colors hover:opacity-80 rounded-lg"
+                      style={{ color: '#d8dee9' }}
                     >
                       Disconnect
                     </button>
@@ -216,6 +266,80 @@ export default function Navbar() {
               </Menu>
             </motion.div>
           )}
+
+          {/* Wallet Selection Modal */}
+          <AnimatePresence>
+            {showWalletModal && (
+              <motion.div
+                className="fixed inset-0 z-50 flex items-center justify-center"
+                style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)' }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <motion.div
+                  className="rounded-xl p-6 w-full max-w-md mx-4"
+                  style={{
+                    backgroundColor: '#3b4252',
+                    color: '#eceff4'
+                  }}
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold">Connect Algorand Wallet</h3>
+                    <button
+                      onClick={() => setShowWalletModal(false)}
+                      className="transition-colors hover:opacity-80"
+                      style={{ color: '#d8dee9' }}
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {wallets?.map((wallet) => (
+                      <motion.button
+                        key={wallet.id}
+                        onClick={() => handleConnect(wallet.id)}
+                        className="w-full p-4 rounded-lg border transition-colors text-left flex items-center space-x-3"
+                        style={{
+                          backgroundColor: '#434c5e',
+                          borderColor: '#5e81ac',
+                          color: '#eceff4'
+                        }}
+                        whileHover={{ backgroundColor: '#4c566a' }}
+                        whileTap={{ scale: 0.98 }}
+                        disabled={isConnecting || wallet.isConnected}
+                      >
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg" style={{ backgroundColor: '#5e81ac' }}>
+                          {wallet.id === 'pera' && '🟣'}
+                          {wallet.id === 'defly' && '🦋'}
+                          {wallet.id === 'exodus' && '🚀'}
+                          {wallet.id === 'lute' && '🎵'}
+                          {wallet.id === 'walletconnect' && '🔗'}
+                          {!['pera', 'defly', 'exodus', 'lute', 'walletconnect'].includes(wallet.id) && '👛'}
+                        </div>
+                        <div>
+                          <div className="font-medium">{wallet.metadata.name}</div>
+                          <div className="text-sm opacity-70">
+                            {wallet.isConnected ? 'Connected' : `Connect with ${wallet.metadata.name}`}
+                          </div>
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 text-xs text-center opacity-70">
+                    Choose your preferred Algorand wallet to connect to the DEX
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       </div>
     </motion.div>

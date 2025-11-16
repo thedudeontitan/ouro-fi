@@ -68,6 +68,11 @@ function TradingViewWidget({ symbol, onIntervalChange }: TradingViewWidgetProps)
           "hide_share_button": true,
           "save_image": false,
           "toolbar_bg": "#242931",
+          "container_id": "pricechart_tv",
+          "show_popup_button": false,
+          "popup_width": "1000",
+          "popup_height": "650",
+          "no_referral_id": true,
           "overrides": {
             "paneProperties.background": "#242931",
             "paneProperties.backgroundType": "solid",
@@ -88,9 +93,19 @@ function TradingViewWidget({ symbol, onIntervalChange }: TradingViewWidgetProps)
   };
 
   useEffect(() => {
-    loadWidget();
+    // Clear previous widget
+    if (container.current) {
+      container.current.innerHTML = '';
+    }
+    scriptLoaded.current = false;
+
+    // Small delay to ensure cleanup is complete
+    const timer = setTimeout(() => {
+      loadWidget();
+    }, 100);
 
     return () => {
+      clearTimeout(timer);
       if (container.current) {
         container.current.innerHTML = '';
       }
@@ -115,7 +130,7 @@ function TradingViewWidget({ symbol, onIntervalChange }: TradingViewWidgetProps)
               className={`inline-flex select-none items-center justify-center whitespace-nowrap rounded-[10px] font-semibold outline-none transition-colors active:opacity-80 h-8 text-xs leading-none px-2 md:px-3 md:h-9 md:text-sm md:leading-none ${
                 selectedInterval === tf.label
                   ? 'text-white'
-                  : 'hover:opacity-80'
+                  : ''
               }`}
               style={{
                 backgroundColor: selectedInterval === tf.label
@@ -136,7 +151,7 @@ function TradingViewWidget({ symbol, onIntervalChange }: TradingViewWidgetProps)
 
         {/* Settings Button */}
         <motion.button
-          className="inline-flex select-none items-center justify-center whitespace-nowrap rounded-[10px] font-semibold outline-none transition-shadow h-8 w-8 px-0 text-sm leading-none md:hidden hover:opacity-80"
+          className="inline-flex select-none items-center justify-center whitespace-nowrap rounded-[10px] font-semibold outline-none transition-shadow h-8 w-8 px-0 text-sm leading-none md:hidden"
           style={{ color: '#d8dee9' }}
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}

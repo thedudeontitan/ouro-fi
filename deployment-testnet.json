@@ -1,0 +1,14 @@
+{
+  "network": "testnet",
+  "deployer_address": "VK3HGSFUCOP42OBHJLF6LEJBLNAWQIJINVX4YWWLJRRWABNJ4B46ZKPNPQ",
+  "deployment_timestamp": 1763267903,
+  "contracts": {
+    "oracle": 123456789,
+    "dex": 123456790,
+    "orderbook": 123456791
+  },
+  "asset_ids": {
+    "USDC": 31566704
+  },
+  "note": "Mock deployment for frontend testing"
+}

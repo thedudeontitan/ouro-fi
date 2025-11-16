@@ -1,9 +1,14 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useWallet } from "@txnlab/use-wallet-react";
 import TradingViewWidget from "../components/TradingView";
 import { Symbols } from "../types";
 import { getSymbolPrice } from "../utils/GetSymbolPrice";
+import { useVelocityContracts, usePositions, usePriceData } from "../hooks/useContracts";
+import { formatAddress } from "../services/algorand/modern-wallet";
+import ContractStatus from "../components/ContractStatus";
+import USDCHelper from "../components/USDCHelper";
 
 const container = {
   hidden: { opacity: 0 },
@@ -42,26 +47,223 @@ const slideIn = {
 
 export default function Trade() {
   const { symbol } = useParams();
-  const [price, setPrice] = useState<number>(4078.15);
+  const {
+    activeWallet,
+    activeAddress,
+    algodClient
+  } = useWallet();
+
+  const [accountInfo, setAccountInfo] = React.useState<any>(null);
+
+  // Load account info when active address changes
+  React.useEffect(() => {
+    const loadAccountInfo = async () => {
+      if (activeAddress && algodClient) {
+        try {
+          const info = await algodClient.accountInformation(activeAddress).do();
+          setAccountInfo(info);
+
+          // Debug USDC balance
+          const usdcAsset = info.assets?.find((asset: any) => asset['asset-id'] === 10458941);
+          console.log('💰 Account Assets:', info.assets?.map((a: any) => ({ id: a['asset-id'], amount: a.amount })));
+          console.log('💵 USDC Asset (10458941):', usdcAsset);
+          console.log('💸 USDC Balance:', usdcAsset?.amount || 0);
+        } catch (err) {
+          console.warn('Failed to load account info:', err);
+        }
+      } else {
+        setAccountInfo(null);
+      }
+    };
+    loadAccountInfo();
+  }, [activeAddress, algodClient]);
+
+  const isConnected = Boolean(activeWallet && activeAddress);
+
+  // Get USDC balance with proper conversion
+  const usdcAsset = accountInfo?.assets?.find(
+    (asset: any) => asset['asset-id'] === 10458941
+  );
+  const usdcBalance = usdcAsset?.amount ? Number(usdcAsset.amount) : 0;
+
+  // Debug balance conversion
+  React.useEffect(() => {
+    if (isConnected) {
+      console.log('🔍 USDC Balance Debug:', {
+        raw: usdcAsset?.amount,
+        converted: usdcBalance,
+        formatted: (usdcBalance / 1000000).toFixed(2) + ' USDC'
+      });
+    }
+  }, [usdcBalance, usdcAsset, isConnected]);
+  const { dex, oracle, isReady, isLoading, error: contractError } = useVelocityContracts();
+  const {
+    positions,
+    loading: positionsLoading,
+    openNewPosition,
+    closeExistingPosition,
+    error: positionError
+  } = usePositions();
+  const { prices, loadPrice, error: priceError } = usePriceData();
+
+  const isTrading = isLoading || positionsLoading;
+  const tradingError = contractError || positionError || priceError;
+
+  const [price, setPrice] = useState<number>(0);
+  const [previousPrice, setPreviousPrice] = useState<number>(0);
+  const [priceChange, setPriceChange] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<"MARKET" | "LIMIT">("MARKET");
   const [orderType, setOrderType] = useState<"BUY" | "SELL">("BUY");
-  const [amount, setAmount] = useState<string>("10");
-  const [leverage, setLeverage] = useState<number>(50);
+  const [amount, setAmount] = useState<string>("100");
+  const [leverage, setLeverage] = useState<number>(10);
+  const [showPositions, setShowPositions] = useState(true);
+  const [showUSDCHelper, setShowUSDCHelper] = useState(false);
 
+  // Real-time price updates
   useEffect(() => {
-    if (symbol) {
-      getSymbolPrice(symbol as keyof typeof Symbols).then(setPrice);
-    }
-  }, [symbol]);
+    let intervalId: NodeJS.Timeout;
+    let isInitialFetch = true;
+
+    const fetchPrice = async () => {
+      if (symbol) {
+        try {
+          const newPrice = await getSymbolPrice(symbol as keyof typeof Symbols);
+
+          if (isInitialFetch) {
+            // On first fetch, set both current and previous to same value
+            setPrice(newPrice);
+            setPreviousPrice(newPrice);
+            // Set a realistic price change based on symbol
+            const mockChanges = {
+              'ETHUSD': -2.34,
+              'BTCUSD': 1.87,
+              'SOLUSD': -0.92,
+              'ALGOUSD': 3.45
+            };
+            setPriceChange(mockChanges[symbol as keyof typeof mockChanges] || 0);
+            isInitialFetch = false;
+          } else {
+            // For subsequent fetches, calculate real change
+            if (previousPrice > 0) {
+              const change = ((newPrice - previousPrice) / previousPrice) * 100;
+              setPriceChange(change);
+            }
+            setPreviousPrice(price);
+            setPrice(newPrice);
+          }
+        } catch (error) {
+          console.error('Error fetching real-time price:', error);
+        }
+      }
+    };
+
+    // Initial price fetch
+    fetchPrice();
+
+    // Set up interval for real-time updates (every 5 seconds)
+    intervalId = setInterval(fetchPrice, 5000);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [symbol, price, previousPrice]);
 
   const currentSymbol = symbol?.replace("USD", "") || "ETH";
-  const priceChange = -3.68;
-  const indexPrice = "4077.50";
+  const indexPrice = price > 0 ? price.toLocaleString(undefined, {
+    minimumFractionDigits: price < 1 ? 6 : 2,
+    maximumFractionDigits: price < 1 ? 8 : 2
+  }) : "0.00";
   const fundingRate = "-0.0028%/hr";
   const marketSkew = "96.46K";
 
-  const handleBuyLong = () => {
-    console.log("Buy/Long order:", { amount, leverage, orderType });
+  const handleTrade = async () => {
+    if (!isConnected) {
+      alert("Please connect your wallet first");
+      return;
+    }
+
+    if (!symbol) {
+      alert("No symbol selected");
+      return;
+    }
+
+    const marginAmount = Math.floor(parseFloat(amount) * 1000000); // Convert to micro-USDC
+    const positionSize = Math.floor(marginAmount * leverage);
+
+    console.log('💳 Trade Validation:', {
+      marginAmount,
+      usdcBalance,
+      marginAmountUSDC: marginAmount / 1000000,
+      usdcBalanceUSDC: usdcBalance / 1000000,
+      hasEnoughBalance: marginAmount <= usdcBalance
+    });
+
+    if (usdcBalance === 0) {
+      alert(`You need testnet USDC to trade.
+
+Asset ID: 10458941
+
+You can:
+1. Get testnet USDC from Algorand faucets
+2. Add the USDC asset to your wallet first
+3. Check that you're connected to the correct wallet`);
+      return;
+    }
+
+    if (marginAmount > usdcBalance) {
+      alert(`Insufficient USDC balance.
+
+Required: ${(marginAmount / 1000000).toFixed(2)} USDC
+Available: ${(usdcBalance / 1000000).toFixed(6)} USDC
+
+Please add more USDC or reduce your position size.`);
+      return;
+    }
+
+    try {
+      const result = await openNewPosition(
+        symbol.toUpperCase(),
+        leverage,
+        orderType === "BUY",
+        marginAmount
+      );
+
+      if (result) {
+        alert(`Position opened successfully! TxID: ${result}`);
+        setAmount("100"); // Reset form
+      }
+    } catch (error) {
+      alert(`Failed to open position: ${error}`);
+    }
+  };
+
+  const handleClosePosition = async (positionId: number) => {
+    try {
+      const result = await closeExistingPosition(positionId);
+      if (result) {
+        alert(`Position closed! TxID: ${result}`);
+      }
+    } catch (error) {
+      alert(`Failed to close position: ${error}`);
+    }
+  };
+
+  // Load price data when symbol changes
+  React.useEffect(() => {
+    if (symbol && oracle.contract) {
+      loadPrice(symbol.toUpperCase());
+    }
+  }, [symbol, oracle.contract, loadPrice]);
+
+  // Calculate portfolio metrics from positions
+  const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + (pos.size * 0.01), 0); // Mock calculation
+  const marginUsed = positions.reduce((sum, pos) => sum + pos.size, 0);
+  const availableMargin = usdcBalance - marginUsed;
+
+  const clearError = () => {
+    // Clear all errors - each hook has its own clearError method
   };
 
 
@@ -76,6 +278,11 @@ export default function Trade() {
       animate="show"
       variants={container}
     >
+      {/* Contract Status Indicator */}
+      <ContractStatus />
+
+      {/* USDC Helper Modal */}
+      <USDCHelper isVisible={showUSDCHelper} onClose={() => setShowUSDCHelper(false)} />
       {/* Header with price info */}
       <motion.div className="px-6 pt-6 pb-4" variants={item}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -108,11 +315,28 @@ export default function Trade() {
               </svg>
             </div>
 
-            <div className="text-2xl font-bold"
-                 style={{ color: priceChange >= 0 ? '#a3be8c' : '#bf616a' }}>
-              {price.toLocaleString()}
-              <span className="text-lg ml-2">{priceChange}%</span>
-            </div>
+            <motion.div
+              className="text-2xl font-bold"
+              style={{ color: priceChange >= 0 ? '#a3be8c' : '#bf616a' }}
+              key={price} // This will trigger re-animation on price change
+              initial={{ scale: 1.05, opacity: 0.8 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.3 }}
+            >
+              {price > 0 ? (
+                <>
+                  ${price.toLocaleString(undefined, {
+                    minimumFractionDigits: price < 1 ? 6 : 2,
+                    maximumFractionDigits: price < 1 ? 8 : 2
+                  })}
+                  <span className="text-lg ml-2">
+                    {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)}%
+                  </span>
+                </>
+              ) : (
+                <span style={{ color: '#d8dee9' }}>Loading...</span>
+              )}
+            </motion.div>
 
             {/* Market stats */}
             <div className="flex flex-wrap gap-4 lg:gap-6 text-sm">
@@ -143,7 +367,17 @@ export default function Trade() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-4">
+            {/* Wallet status display */}
+            {isConnected && activeAddress && (
+              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#3b4252' }}>
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <span className="text-sm font-mono" style={{ color: '#eceff4' }}>
+                  {formatAddress(activeAddress)}
+                </span>
+              </div>
+            )}
+
             <button className="p-2 rounded transition-colors hover:opacity-80"
                     style={{ backgroundColor: '#3b4252' }}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -164,8 +398,6 @@ export default function Trade() {
           <motion.div
             className="flex-1 order-2 lg:order-1"
             variants={item}
-            whileHover={{ scale: 1.01 }}
-            transition={{ type: "spring", stiffness: 300 }}
           >
             <div className="h-[400px] lg:h-[600px] rounded-lg overflow-hidden" style={{
             }}>
@@ -177,8 +409,6 @@ export default function Trade() {
           <motion.div
             className="w-full lg:w-80 lg:flex-shrink-0 order-1 lg:order-2"
             variants={slideIn}
-            whileHover={{ scale: 1.02 }}
-            transition={{ type: "spring", stiffness: 300 }}
           >
             <div className="rounded-lg p-4 h-fit" style={{
               backgroundColor: '#242931',
@@ -194,13 +424,12 @@ export default function Trade() {
                     className={`flex-1 py-2 px-4 font-medium transition-colors ${
                       activeTab === tab
                         ? "border-b-2"
-                        : "hover:opacity-80"
+                        : ""
                     }`}
                     style={{
                       color: activeTab === tab ? '#eceff4' : '#d8dee9',
                       borderBottomColor: activeTab === tab ? '#5e81ac' : 'transparent'
                     }}
-                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                   >
                     {tab}
@@ -230,9 +459,7 @@ export default function Trade() {
                   <motion.button
                     key={type}
                     onClick={() => setOrderType(type as "BUY" | "SELL")}
-                    className={`flex-1 py-2 px-4 rounded text-sm font-bold transition-colors ${
-                      orderType === type ? "" : "hover:opacity-80"
-                    }`}
+                    className={`flex-1 py-2 px-4 rounded text-sm font-bold transition-colors`}
                     style={{
                       backgroundColor: orderType === type
                         ? (type === "BUY" ? '#a3be8c' : '#bf616a')
@@ -242,7 +469,6 @@ export default function Trade() {
                         : '#d8dee9',
                       borderRadius: 'var(--rk-radii-connectButton)'
                     }}
-                    whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -300,40 +526,95 @@ export default function Trade() {
                   <input
                     type="range"
                     min="1"
-                    max="150"
+                    max="100"
                     value={leverage}
                     onChange={(e) => setLeverage(Number(e.target.value))}
-                    className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer leverage-slider"
+                    className="w-full h-2 rounded-lg appearance-none cursor-pointer leverage-slider"
+                    style={{
+                      background: `linear-gradient(90deg, #4ade80 0%, #3b82f6 50%, #8b5cf6 100%)`
+                    }}
                   />
-                  <div className="absolute top-1/2 transform -translate-y-1/2 w-4 h-4 bg-white rounded-full border-2 border-[#1a1a1a] cursor-pointer"
-                       style={{ left: `${((leverage - 1) / 149) * 100}%` }}></div>
                 </div>
                 <div className="flex justify-between text-xs text-gray-500">
-                  <span>3x - Safe</span>
-                  <span className="text-purple-400">Degen - 150x</span>
+                  <span>1x - Safe</span>
+                  <span className="text-purple-400">100x - Degen</span>
                 </div>
               </div>
 
-              {/* Buy/Long button */}
+              {/* Trading Status */}
+              {isConnected && (
+                <div className="mb-4 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span style={{ color: '#d8dee9' }}>Available Margin:</span>
+                    <div className="flex items-center space-x-2">
+                      <span style={{
+                        color: usdcBalance > 0 ? '#eceff4' : '#bf616a'
+                      }}>
+                        {usdcBalance > 0
+                          ? `${(usdcBalance / 1000000).toFixed(6)} USDC`
+                          : 'No USDC'
+                        }
+                      </span>
+                      {usdcBalance === 0 && (
+                        <button
+                          onClick={() => setShowUSDCHelper(true)}
+                          className="text-xs px-2 py-1 rounded transition-colors hover:opacity-80"
+                          style={{
+                            backgroundColor: '#5e81ac',
+                            color: '#eceff4'
+                          }}
+                        >
+                          Get USDC
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex justify-between">
+                    <span style={{ color: '#d8dee9' }}>Position Size:</span>
+                    <span style={{ color: '#eceff4' }}>
+                      ${((parseFloat(amount) || 0) * leverage).toFixed(2)}
+                    </span>
+                  </div>
+                  {tradingError && (
+                    <div className="text-red-400 text-xs mt-2">
+                      {tradingError}
+                      <button onClick={clearError} className="ml-2 text-red-300 hover:text-red-100">
+                        ×
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Trade button */}
               <motion.button
-                onClick={handleBuyLong}
-                className="w-full py-3 font-bold text-sm transition-colors hover:opacity-90"
+                onClick={handleTrade}
+                disabled={!isConnected || isTrading}
+                className="w-full py-3 font-bold text-sm transition-colors disabled:opacity-50"
                 style={{
-                  backgroundColor: orderType === "BUY"
+                  backgroundColor: !isConnected
+                    ? '#434c5e'
+                    : orderType === "BUY"
                     ? '#a3be8c'
                     : '#bf616a',
-                  color: orderType === "BUY" ? '#242931' : '#eceff4',
+                  color: !isConnected
+                    ? '#d8dee9'
+                    : orderType === "BUY" ? '#242931' : '#eceff4',
                   borderRadius: 'var(--rk-radii-connectButton)',
                   border: 'none',
                   boxShadow: 'var(--rk-shadows-connectButton)'
                 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                whileTap={{ scale: isConnected ? 0.95 : 1 }}
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
               >
-                {orderType} / {orderType === "BUY" ? "LONG" : "SHORT"}
+                {!isConnected
+                  ? "Connect Wallet to Trade"
+                  : isTrading
+                  ? "Processing..."
+                  : `${orderType} / ${orderType === "BUY" ? "LONG" : "SHORT"}`
+                }
               </motion.button>
             </div>
           </motion.div>
@@ -356,23 +637,20 @@ export default function Trade() {
               color: '#eceff4',
               borderBottomColor: '#5e81ac'
             }}
-            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             Positions
           </motion.button>
           <motion.button
-            className="pb-3 transition-colors hover:opacity-80"
+            className="pb-3 transition-colors"
             style={{ color: '#d8dee9' }}
-            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             Orders
           </motion.button>
           <motion.button
-            className="pb-3 transition-colors hover:opacity-80"
+            className="pb-3 transition-colors"
             style={{ color: '#d8dee9' }}
-            whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
             History
@@ -390,40 +668,166 @@ export default function Trade() {
           </motion.div>
         </div>
         <motion.div
-          className="py-8"
+          className="py-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
         >
-          <div className="text-center text-sm" style={{ color: '#d8dee9' }}>
-            No positions found
-          </div>
+          {!isConnected ? (
+            <div className="text-center text-sm" style={{ color: '#d8dee9' }}>
+              Connect wallet to view positions
+            </div>
+          ) : positions.length === 0 ? (
+            <div className="text-center text-sm" style={{ color: '#d8dee9' }}>
+              No positions found
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {positions.map((position) => (
+                <motion.div
+                  key={position.timestamp}
+                  className="p-4 rounded-lg border"
+                  style={{
+                    backgroundColor: '#3b4252',
+                    borderColor: '#434c5e'
+                  }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  whileHover={{ backgroundColor: '#434c5e' }}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <span className="font-medium" style={{ color: '#eceff4' }}>
+                        {position.symbol}
+                      </span>
+                      <span className={`ml-2 px-2 py-1 rounded text-xs font-bold ${
+                        position.size > 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {position.size > 0 ? 'LONG' : 'SHORT'} {position.leverage}x
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleClosePosition(position.timestamp)}
+                      disabled={isTrading}
+                      className="px-3 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50"
+                      style={{
+                        backgroundColor: '#bf616a',
+                        color: '#eceff4'
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Size</div>
+                      <div style={{ color: '#eceff4' }}>
+                        ${(position.size / 100000000).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Entry Price</div>
+                      <div style={{ color: '#eceff4' }}>
+                        ${(position.entryPrice / 100000000).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Margin</div>
+                      <div style={{ color: '#eceff4' }}>
+                        ${(position.margin / 1000000).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Unrealized PnL</div>
+                      <div className="text-green-400">
+                        ${((position.size * 0.01) / 1000000).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+
+              {/* Portfolio Summary */}
+              {positions.length > 0 && (
+                <motion.div
+                  className="p-4 rounded-lg border mt-4"
+                  style={{
+                    backgroundColor: '#434c5e',
+                    borderColor: '#5e81ac'
+                  }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <div className="text-sm font-medium mb-2" style={{ color: '#eceff4' }}>
+                    Portfolio Summary
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Total Unrealized PnL</div>
+                      <div className={totalUnrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}>
+                        ${(totalUnrealizedPnL / 1000000).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Margin Used</div>
+                      <div style={{ color: '#eceff4' }}>
+                        ${(marginUsed / 1000000).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: '#d8dee9' }}>Available Margin</div>
+                      <div style={{ color: '#eceff4' }}>
+                        ${(availableMargin / 1000000).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          )}
         </motion.div>
       </motion.div>
 
       {/* Custom CSS for leverage slider */}
       <style>{`
-        .leverage-slider {
+        .leverage-slider::-webkit-slider-thumb {
+          appearance: none;
+          height: 20px;
+          width: 20px;
+          border-radius: 50%;
+          background: white;
+          cursor: pointer;
+          border: 3px solid #1a1a1a;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          transition: all 0.2s ease;
+        }
+
+
+        .leverage-slider::-moz-range-thumb {
+          height: 20px;
+          width: 20px;
+          border-radius: 50%;
+          background: white;
+          cursor: pointer;
+          border: 3px solid #1a1a1a;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          transition: all 0.2s ease;
+        }
+
+
+        .leverage-slider::-webkit-slider-track {
+          height: 8px;
+          border-radius: 4px;
           background: linear-gradient(90deg, #4ade80 0%, #3b82f6 50%, #8b5cf6 100%);
         }
 
-        .leverage-slider::-webkit-slider-thumb {
-          appearance: none;
-          height: 16px;
-          width: 16px;
-          border-radius: 50%;
-          background: white;
-          cursor: pointer;
-          border: 2px solid #1a1a1a;
-        }
-
-        .leverage-slider::-moz-range-thumb {
-          height: 16px;
-          width: 16px;
-          border-radius: 50%;
-          background: white;
-          cursor: pointer;
-          border: 2px solid #1a1a1a;
+        .leverage-slider::-moz-range-track {
+          height: 8px;
+          border-radius: 4px;
+          background: linear-gradient(90deg, #4ade80 0%, #3b82f6 50%, #8b5cf6 100%);
+          border: none;
         }
       `}</style>
     </motion.div>
