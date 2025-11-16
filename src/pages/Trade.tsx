@@ -9,6 +9,7 @@ import { useVelocityContracts, usePositions, usePriceData } from "../hooks/useCo
 import { formatAddress } from "../services/algorand/modern-wallet";
 import ContractStatus from "../components/ContractStatus";
 import USDCHelper from "../components/USDCHelper";
+import { getUSDCBalance, TokenBalance } from "../utils/tokenBalances";
 
 const container = {
   hidden: { opacity: 0 },
@@ -63,13 +64,8 @@ export default function Trade() {
           const info = await algodClient.accountInformation(activeAddress).do();
           setAccountInfo(info);
 
-          // Debug USDC balance
-          const usdcAsset = info.assets?.find((asset: any) => asset['asset-id'] === 10458941);
-          console.log('💰 Account Assets:', info.assets?.map((a: any) => ({ id: a['asset-id'], amount: a.amount })));
-          console.log('💵 USDC Asset (10458941):', usdcAsset);
-          console.log('💸 USDC Balance:', usdcAsset?.amount || 0);
         } catch (err) {
-          console.warn('Failed to load account info:', err);
+          console.error('Failed to load account info:', err);
         }
       } else {
         setAccountInfo(null);
@@ -80,22 +76,38 @@ export default function Trade() {
 
   const isConnected = Boolean(activeWallet && activeAddress);
 
-  // Get USDC balance with proper conversion
+  // Enhanced USDC balance detection using new utility
+  const [usdcBalanceInfo, setUsdcBalanceInfo] = useState<TokenBalance | null>(null);
+
+  // Get USDC balance with improved detection
   const usdcAsset = accountInfo?.assets?.find(
     (asset: any) => asset['asset-id'] === 10458941
   );
   const usdcBalance = usdcAsset?.amount ? Number(usdcAsset.amount) : 0;
 
-  // Debug balance conversion
-  React.useEffect(() => {
-    if (isConnected) {
-      console.log('🔍 USDC Balance Debug:', {
-        raw: usdcAsset?.amount,
-        converted: usdcBalance,
-        formatted: (usdcBalance / 1000000).toFixed(2) + ' USDC'
-      });
-    }
-  }, [usdcBalance, usdcAsset, isConnected]);
+  // Fetch detailed USDC balance info
+  useEffect(() => {
+    const fetchUsdcBalance = async () => {
+      if (!isConnected || !activeAddress) {
+        setUsdcBalanceInfo(null);
+        return;
+      }
+
+      try {
+        const balance = await getUSDCBalance(activeAddress);
+        setUsdcBalanceInfo(balance);
+
+      } catch (error) {
+        console.error('Failed to fetch USDC balance:', error);
+        setUsdcBalanceInfo(null);
+      }
+    };
+
+    fetchUsdcBalance();
+  }, [isConnected, activeAddress, accountInfo]);
+
+  // Use enhanced balance if available, fallback to legacy
+  const effectiveUsdcBalance = usdcBalanceInfo?.balance ?? usdcBalance;
   const { dex, oracle, isReady, isLoading, error: contractError } = useVelocityContracts();
   const {
     positions,
@@ -192,15 +204,8 @@ export default function Trade() {
     const marginAmount = Math.floor(parseFloat(amount) * 1000000); // Convert to micro-USDC
     const positionSize = Math.floor(marginAmount * leverage);
 
-    console.log('💳 Trade Validation:', {
-      marginAmount,
-      usdcBalance,
-      marginAmountUSDC: marginAmount / 1000000,
-      usdcBalanceUSDC: usdcBalance / 1000000,
-      hasEnoughBalance: marginAmount <= usdcBalance
-    });
 
-    if (usdcBalance === 0) {
+    if (effectiveUsdcBalance === 0) {
       alert(`You need testnet USDC to trade.
 
 Asset ID: 10458941
@@ -212,11 +217,11 @@ You can:
       return;
     }
 
-    if (marginAmount > usdcBalance) {
+    if (marginAmount > effectiveUsdcBalance) {
       alert(`Insufficient USDC balance.
 
 Required: ${(marginAmount / 1000000).toFixed(2)} USDC
-Available: ${(usdcBalance / 1000000).toFixed(6)} USDC
+Available: ${(effectiveUsdcBalance / 1000000).toFixed(6)} USDC
 
 Please add more USDC or reduce your position size.`);
       return;
@@ -260,7 +265,7 @@ Please add more USDC or reduce your position size.`);
   // Calculate portfolio metrics from positions
   const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + (pos.size * 0.01), 0); // Mock calculation
   const marginUsed = positions.reduce((sum, pos) => sum + pos.size, 0);
-  const availableMargin = usdcBalance - marginUsed;
+  const availableMargin = effectiveUsdcBalance - marginUsed;
 
   const clearError = () => {
     // Clear all errors - each hook has its own clearError method
@@ -548,14 +553,14 @@ Please add more USDC or reduce your position size.`);
                     <span style={{ color: '#d8dee9' }}>Available Margin:</span>
                     <div className="flex items-center space-x-2">
                       <span style={{
-                        color: usdcBalance > 0 ? '#eceff4' : '#bf616a'
+                        color: effectiveUsdcBalance > 0 ? '#eceff4' : '#bf616a'
                       }}>
-                        {usdcBalance > 0
-                          ? `${(usdcBalance / 1000000).toFixed(6)} USDC`
+                        {effectiveUsdcBalance > 0
+                          ? `${(effectiveUsdcBalance / 1000000).toFixed(6)} USDC`
                           : 'No USDC'
                         }
                       </span>
-                      {usdcBalance === 0 && (
+                      {effectiveUsdcBalance === 0 && (
                         <button
                           onClick={() => setShowUSDCHelper(true)}
                           className="text-xs px-2 py-1 rounded transition-colors hover:opacity-80"

@@ -86,12 +86,14 @@ export const CONTRACT_IDS = {
   ORDERBOOK: parseInt(import.meta.env.VITE_ORDERBOOK_APP_ID || '0'),
 };
 
-// Log contract IDs for debugging
-console.log('🔗 Ouro Finance Contract IDs:', {
+// Log contract IDs and mode for debugging
+const isDemo = CONTRACT_IDS.PERPETUAL_DEX === 0;
+console.log(`🔗 Ouro Finance ${isDemo ? 'DEMO MODE' : 'LIVE MODE'}:`, {
   ORACLE: CONTRACT_IDS.PRICE_ORACLE,
   DEX: CONTRACT_IDS.PERPETUAL_DEX,
   ORDERBOOK: CONTRACT_IDS.ORDERBOOK,
-  USDC_ASSET: ASSET_IDS.USDC
+  USDC_ASSET: ASSET_IDS.USDC,
+  MODE: isDemo ? '📝 Demo (contracts not deployed)' : '🚀 Live (real contracts)'
 });
 
 // Network configuration

@@ -15,10 +15,11 @@ import {
   PriceData,
   AssetPair
 } from '../services/algorand/contracts';
+import { getSymbolPrice } from '../utils/GetSymbolPrice';
 
 // Hook for DEX contract interactions
 export const useDEXContract = () => {
-  const { algodClient, activeAddress } = useWallet();
+  const { algodClient, activeAddress, signTransactions } = useWallet();
   const [contract, setContract] = useState<DEXContract | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,13 @@ export const useDEXContract = () => {
       setContract(dexContract);
     }
   }, [algodClient]);
+
+  // Set signer when available (without causing re-renders)
+  useEffect(() => {
+    if (contract && signTransactions) {
+      contract.setSigner(signTransactions);
+    }
+  }, [contract]);
 
   const openPosition = useCallback(async (
     symbol: string,
@@ -45,8 +53,8 @@ export const useDEXContract = () => {
     setError(null);
 
     try {
-      const txId = await contract.openPosition(symbol, leverage, isLong, marginAmount, activeAddress);
-      return txId;
+      const result = await contract.openPosition(symbol, leverage, isLong, marginAmount, activeAddress);
+      return result.txId;
     } catch (err: any) {
       setError(err.message || 'Failed to open position');
       return null;
@@ -65,8 +73,8 @@ export const useDEXContract = () => {
     setError(null);
 
     try {
-      const txId = await contract.closePosition(positionId, activeAddress);
-      return txId;
+      const result = await contract.closePosition(positionId, activeAddress);
+      return result.txId;
     } catch (err: any) {
       setError(err.message || 'Failed to close position');
       return null;
@@ -288,21 +296,64 @@ export const useVelocityContracts = () => {
 // Hook for managing trading positions
 export const usePositions = () => {
   const { dex } = useVelocityContracts();
-  const [positions, setPositions] = useState<Position[]>([
-    // Mock position data for demonstration
-    {
-      margin: 100000000, // 100 USDC
-      entryPrice: 400000000000, // $4000
-      isOpen: false,
-      holder: 'VK3HGSFUCOP42OBHJLF6LEJBLNAWQIJINVX4YWWLJRRWABNJ4B46ZKPNPQ',
-      leverage: 10,
-      size: 1000000000, // $1000 position size
-      symbol: 'ETHUSD',
-      timestamp: Date.now() - 3600000, // 1 hour ago
-      liquidationPrice: 360000000000 // $3600
-    }
-  ]);
+  const { activeAddress } = useWallet();
+  const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(false);
+  const [positionsInitialized, setPositionsInitialized] = useState(false);
+
+  // Initialize with realistic mock position using current market prices
+  useEffect(() => {
+    const initializeMockPositions = async () => {
+      if (positionsInitialized) return;
+
+      try {
+        // Get current ETH price for mock position
+        const currentEthPrice = await getSymbolPrice('ETHUSD');
+        const entryPrice = Math.floor(currentEthPrice * 100000000); // Convert to 8 decimals
+
+        const mockPosition: Position = {
+          margin: 100000000, // 100 USDC
+          entryPrice, // Current ETH price
+          isOpen: false,
+          holder: 'VK3HGSFUCOP42OBHJLF6LEJBLNAWQIJINVX4YWWLJRRWABNJ4B46ZKPNPQ',
+          leverage: 10,
+          size: 1000000000, // $1000 position size
+          symbol: 'ETHUSD',
+          timestamp: Date.now() - 3600000, // 1 hour ago
+          liquidationPrice: Math.floor(entryPrice * 0.9) // 10% below entry for long position
+        };
+
+        setPositions([mockPosition]);
+        setPositionsInitialized(true);
+
+        console.log('🏦 Initialized mock position with current price:', {
+          symbol: 'ETHUSD',
+          entryPrice: `$${(entryPrice / 100000000).toFixed(2)}`,
+          liquidationPrice: `$${(mockPosition.liquidationPrice / 100000000).toFixed(2)}`
+        });
+      } catch (error) {
+        console.warn('⚠️ Failed to fetch current price for mock position, using fallback');
+
+        // Fallback to static position if price fetch fails
+        const fallbackPosition: Position = {
+          margin: 100000000,
+          entryPrice: 400000000000, // $4000 fallback
+          isOpen: false,
+          holder: 'VK3HGSFUCOP42OBHJLF6LEJBLNAWQIJINVX4YWWLJRRWABNJ4B46ZKPNPQ',
+          leverage: 10,
+          size: 1000000000,
+          symbol: 'ETHUSD',
+          timestamp: Date.now() - 3600000,
+          liquidationPrice: 360000000000
+        };
+
+        setPositions([fallbackPosition]);
+        setPositionsInitialized(true);
+      }
+    };
+
+    initializeMockPositions();
+  }, []); // Empty dependency array - only run once on mount
 
   const loadPosition = useCallback(async (positionId: number) => {
     if (!dex.contract) return;
@@ -336,41 +387,103 @@ export const usePositions = () => {
   ) => {
     console.log('🚀 Opening position:', { symbol, leverage, isLong, marginAmount });
 
-    // For mock: simulate transaction delay and add new position
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Fetch current market price
+    let currentPrice;
+    try {
+      currentPrice = await getSymbolPrice(symbol);
+      console.log(`📈 Current ${symbol} price: $${currentPrice}`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to fetch ${symbol} price, using fallback:`, error);
+      // Fallback prices if API fails
+      const fallbackPrices: Record<string, number> = {
+        'ETHUSD': 4000,
+        'BTCUSD': 65000,
+        'SOLUSD': 150,
+        'ALGOUSD': 0.5
+      };
+      currentPrice = fallbackPrices[symbol] || 4000;
+    }
 
-    const newPosition: Position = {
-      margin: marginAmount,
-      entryPrice: 400000000000, // Current ETH price
-      isOpen: false,
-      holder: 'VK3HGSFUCOP42OBHJLF6LEJBLNAWQIJINVX4YWWLJRRWABNJ4B46ZKPNPQ',
-      leverage,
-      size: isLong ? marginAmount * leverage : -(marginAmount * leverage),
-      symbol,
-      timestamp: Date.now(),
-      liquidationPrice: isLong ? 360000000000 : 440000000000
-    };
+    // Convert price to 8 decimal format for internal storage
+    const entryPrice = Math.floor(currentPrice * 100000000); // 8 decimals
 
-    setPositions(prev => [...prev, newPosition]);
+    // Calculate liquidation price (5% margin from entry for safety)
+    const liquidationPrice = isLong
+      ? Math.floor(entryPrice * (1 - 0.95 / leverage)) // Long liquidation below entry
+      : Math.floor(entryPrice * (1 + 0.95 / leverage)); // Short liquidation above entry
 
-    const mockTxId = 'MOCK_TX_' + Date.now();
-    console.log('✅ Position opened with transaction:', mockTxId);
-    return mockTxId;
-  }, []);
+    // Use real DEX contract to create transaction
+    if (!dex.contract) {
+      throw new Error('DEX contract not initialized');
+    }
+
+    if (!activeAddress) {
+      throw new Error('Wallet not connected');
+    }
+
+    try {
+      // Call the actual contract method to create real transaction
+      const txId = await dex.openPosition(symbol, leverage, isLong, marginAmount);
+
+      // Create the position object after successful transaction creation
+      const newPosition: Position = {
+        margin: marginAmount,
+        entryPrice, // Using actual market price
+        isOpen: true, // Mark as open since we created real transaction
+        holder: activeAddress,
+        leverage,
+        size: isLong ? marginAmount * leverage : -(marginAmount * leverage),
+        symbol,
+        timestamp: Date.now(),
+        liquidationPrice
+      };
+
+      console.log('📋 Real position created:', {
+        symbol,
+        entryPrice: `$${(entryPrice / 100000000).toFixed(2)}`,
+        liquidationPrice: `$${(liquidationPrice / 100000000).toFixed(2)}`,
+        direction: isLong ? 'LONG' : 'SHORT',
+        leverage: `${leverage}x`,
+        txId
+      });
+
+      setPositions(prev => [...prev, newPosition]);
+
+      console.log('✅ Real position transaction created:', txId);
+      return txId;
+
+    } catch (error) {
+      console.error('❌ Failed to create position transaction:', error);
+      throw error;
+    }
+  }, [dex.contract, activeAddress]);
 
   const closeExistingPosition = useCallback(async (positionId: number) => {
     console.log('🔒 Closing position:', positionId);
 
-    // For mock: simulate transaction delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    if (!dex.contract) {
+      throw new Error('DEX contract not initialized');
+    }
 
-    // Remove position from local state
-    setPositions(prev => prev.filter(p => p.timestamp !== positionId));
+    if (!activeAddress) {
+      throw new Error('Wallet not connected');
+    }
 
-    const mockTxId = 'MOCK_CLOSE_TX_' + Date.now();
-    console.log('✅ Position closed with transaction:', mockTxId);
-    return mockTxId;
-  }, []);
+    try {
+      // Call the actual contract method to create real close transaction
+      const txId = await dex.closePosition(positionId);
+
+      // Remove position from local state after successful transaction creation
+      setPositions(prev => prev.filter(p => p.timestamp !== positionId));
+
+      console.log('✅ Real close transaction created:', txId);
+      return txId;
+
+    } catch (error) {
+      console.error('❌ Failed to create close transaction:', error);
+      throw error;
+    }
+  }, [dex.contract, activeAddress]);
 
   return {
     positions,

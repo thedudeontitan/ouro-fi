@@ -137,7 +137,7 @@ export class AlgorandClient {
    */
   async compileTeal(source: string): Promise<Uint8Array> {
     const compiled = await this.algodClient.compile(source).do();
-    return new Uint8Array(Buffer.from(compiled.result, 'base64'));
+    return new Uint8Array(Uint8Array.from(atob(compiled.result), c => c.charCodeAt(0)));
   }
 
   /**
