@@ -1,8 +1,8 @@
-# Velocity Finance (Ouro Finance) - Algorand Perpetual Futures DEX
+# Ouro Fi - Algorand Perpetual Futures DEX
 
 ## 🏆 Overview
 
-Velocity Finance (formerly Ouro Finance) is a decentralized perpetual futures exchange built on the Algorand blockchain. This platform enables users to trade perpetual futures contracts with leverage, providing exposure to various cryptocurrency assets without needing to hold the underlying tokens.
+Ouro Fi is a decentralized perpetual futures exchange built on the Algorand blockchain. This platform enables users to trade perpetual futures contracts with leverage, providing exposure to various cryptocurrency assets without needing to hold the underlying tokens.
 
 ### Key Features
 
@@ -124,7 +124,7 @@ src/
 
 ## 🌐 Deployed Frontend
 
-**Live Application**: [Velocity Finance on Vercel](https://velocity-finance.vercel.app)
+**Live Application**: [Ouro Fi on Vercel](https://velocity-finance.vercel.app)
 
 ### Application Features
 
