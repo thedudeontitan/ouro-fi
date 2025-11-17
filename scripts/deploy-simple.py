@@ -9,7 +9,7 @@ import json
 import time
 from pathlib import Path
 from algosdk import account, mnemonic
-from algosdk.v2client import algod
+from algosdk.v2client.algod import AlgodClient
 from algosdk import transaction
 
 # Configuration
@@ -40,7 +40,7 @@ def get_deployer_account():
 def check_balance(algod_client, address):
     """Check account balance"""
     try:
-        account_info = algod_client.account_information(address).do()
+        account_info = algod_client.account_info(address)
         balance = account_info["amount"] / 1_000_000
 
         print(f"💰 Deployer balance: {balance:.6f} ALGO")
@@ -82,8 +82,13 @@ def deploy_contract(algod_client, private_key, address, name):
 
         # Get program bytes
         approval_program, clear_program = create_simple_app()
-        approval_bytes = algod_client.compile(approval_program)['result']
-        clear_bytes = algod_client.compile(clear_program)['result']
+        approval_response = algod_client.compile(approval_program)
+        clear_response = algod_client.compile(clear_program)
+
+        # Decode the base64 encoded programs
+        import base64
+        approval_bytes = base64.b64decode(approval_response['result'])
+        clear_bytes = base64.b64decode(clear_response['result'])
 
         # Create application transaction
         txn = transaction.ApplicationCreateTxn(
@@ -155,7 +160,7 @@ def main():
     print("🎯 Starting Ouro Finance contract deployment...")
 
     # Initialize Algorand client
-    algod_client = algod.AlgodClient(ALGOD_TOKEN, ALGOD_SERVER)
+    algod_client = AlgodClient(ALGOD_TOKEN, ALGOD_SERVER)
 
     # Get deployer account
     private_key, deployer_address, mnemonic_phrase = get_deployer_account()

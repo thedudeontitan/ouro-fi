@@ -92,7 +92,7 @@ class ContractDeployer:
     def _check_account_balance(self):
         """Check if deployer account has sufficient balance"""
         try:
-            account_info = self.algod_client.account_information(self.deployer_account["address"])
+            account_info = self.algod_client.account_information(self.deployer_account["address"]).do()
             balance = account_info["amount"] / 1_000_000  # Convert from microAlgos
 
             print(f"💰 Deployer balance: {balance:.6f} ALGO")
@@ -212,7 +212,7 @@ class ContractDeployer:
                     app_args=[
                         "setup_contract",
                         deployed_apps["oracle"].to_bytes(8, 'big'),  # oracle_app_id
-                        (31566704).to_bytes(8, 'big'),  # USDC asset ID (testnet)
+                        (10458941).to_bytes(8, 'big'),  # USDC asset ID (testnet)
                         (int(time.time()) + 365*24*3600).to_bytes(8, 'big'),  # futures_expiration (1 year)
                         (100_000_000).to_bytes(8, 'big'),  # maintenance_margin (100 USDC)
                         (1000).to_bytes(8, 'big'),  # leverage_dividend
@@ -225,6 +225,24 @@ class ContractDeployer:
                 transaction.wait_for_confirmation(self.algod_client, tx_id, 4)
 
                 print(f"✅ DEX contract configured (TxID: {tx_id})")
+
+                # Opt-in DEX contract to USDC
+                print("🔗 Enabling USDC transfers for DEX contract...")
+
+                params = self.algod_client.suggested_params()
+                optin_txn = transaction.ApplicationCallTxn(
+                    sender=self.deployer_account["address"],
+                    sp=params,
+                    index=deployed_apps["dex"],
+                    on_complete=transaction.OnComplete.NoOpOC,
+                    app_args=["opt_in_usdc"]
+                )
+
+                signed_optin = optin_txn.sign(self.deployer_account["private_key"])
+                optin_tx_id = self.algod_client.send_transaction(signed_optin)
+                transaction.wait_for_confirmation(self.algod_client, optin_tx_id, 4)
+
+                print(f"✅ DEX contract opted into USDC (TxID: {optin_tx_id})")
 
             # Setup OrderBook contract
             if "orderbook" in deployed_apps:
@@ -262,7 +280,7 @@ class ContractDeployer:
             "deployment_timestamp": int(time.time()),
             "contracts": deployed_apps,
             "asset_ids": {
-                "USDC": 31566704 if self.network == "testnet" else 0  # Update for mainnet
+                "USDC": 10458941 if self.network == "testnet" else 0  # Update for mainnet
             }
         }
 

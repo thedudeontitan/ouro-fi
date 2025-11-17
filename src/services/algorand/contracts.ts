@@ -230,12 +230,17 @@ export class DEXContract {
     }
 
     try {
-      // 1. Create payment transaction for margin deposit
-      const paymentTxn = await createPaymentTransaction({
-        from: userAddress,
-        to: algosdk.getApplicationAddress(this.contractId).toString(),
-        amount: marginAmount, // Already in microALGOs
-        note: `Margin deposit for ${symbol} position`
+      const suggestedParams = await this.algodClient.getTransactionParams().do();
+
+      // 1. Create USDC transfer to escrow (deployer account that can receive USDC)
+      const escrowAddress = "EGMQKGVAYLBI7TWVM4U5JDRKQDD6UVSTV7LFHHKGLFOKRAPCWAJSF7UAXI"; // Deployer account
+      const usdcTransferTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+        sender: userAddress,
+        receiver: escrowAddress,
+        assetIndex: ASSET_IDS.USDC,
+        amount: marginAmount, // Amount in micro-USDC
+        suggestedParams,
+        note: new TextEncoder().encode(`USDC margin for ${symbol} position`)
       });
 
       // 2. Create application call transaction for position opening
@@ -246,13 +251,15 @@ export class DEXContract {
           new TextEncoder().encode('open_position'),
           algosdk.encodeUint64(leverage),
           new TextEncoder().encode(symbol),
-          new Uint8Array([isLong ? 1 : 0])
+          new Uint8Array([isLong ? 1 : 0]),
+          algosdk.encodeUint64(marginAmount) // Pass margin amount as argument
         ],
+        foreignAssets: [ASSET_IDS.USDC], // Allow contract to reference USDC
         note: `Open ${isLong ? 'LONG' : 'SHORT'} position: ${symbol} ${leverage}x`
       });
 
-      // 3. Execute as atomic transaction group
-      const result = await executeTransactionGroup([paymentTxn, appCallTxn], this.signer);
+      // 3. Execute as atomic transaction group (USDC transfer + app call)
+      const result = await executeTransactionGroup([usdcTransferTxn, appCallTxn], this.signer);
       return result;
 
     } catch (error) {

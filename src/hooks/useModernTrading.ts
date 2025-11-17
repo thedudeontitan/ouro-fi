@@ -172,16 +172,17 @@ export function useModernTrading(_symbols: string[] = ['ETHUSD', 'BTCUSD', 'SOLU
     try {
       const suggestedParams = await algodClient.getTransactionParams().do();
 
-      // Create margin payment transaction
+      // 1. Create USDC transfer to escrow (deployer account)
+      const escrowAddress = "EGMQKGVAYLBI7TWVM4U5JDRKQDD6UVSTV7LFHHKGLFOKRAPCWAJSF7UAXI"; // Deployer account
       const marginPayment = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
         sender: activeAddress,
-        receiver: algosdk.getApplicationAddress(CONTRACT_IDS.PERPETUAL_DEX),
+        receiver: escrowAddress,
         amount: params.marginAmount,
         assetIndex: ASSET_IDS.USDC,
         suggestedParams,
       });
 
-      // Create open position application call
+      // 2. Create open position application call
       const openPositionCall = algosdk.makeApplicationCallTxnFromObject({
         sender: activeAddress,
         appIndex: CONTRACT_IDS.PERPETUAL_DEX,
@@ -192,6 +193,7 @@ export function useModernTrading(_symbols: string[] = ['ETHUSD', 'BTCUSD', 'SOLU
           algosdk.encodeUint64(params.size),
           algosdk.encodeUint64(params.leverage),
           new Uint8Array([params.isLong ? 1 : 0]),
+          algosdk.encodeUint64(params.marginAmount), // Pass margin as argument
         ],
         foreignApps: [CONTRACT_IDS.PRICE_ORACLE],
         foreignAssets: [ASSET_IDS.USDC],

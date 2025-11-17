@@ -88,6 +88,22 @@ class OuroDEX(ARC4Contract):
         )
 
     @abimethod
+    def opt_in_usdc(self) -> None:
+        """
+        Opt-in to USDC asset (admin only)
+        Must be called after setup_contract and before any trading operations
+        """
+        assert Txn.sender == self.admin, "Only admin can opt-in to assets"
+        assert self.usdc_asset_id != 0, "USDC asset ID not set - call setup_contract first"
+
+        # Create asset opt-in transaction
+        itxn.AssetTransfer(
+            xfer_asset=self.usdc_asset_id,
+            asset_receiver=Global.current_application_address,
+            asset_amount=0,  # 0 amount for opt-in
+        ).submit()
+
+    @abimethod
     def open_position(
         self,
         symbol: String,

@@ -284,7 +284,7 @@ Please add more USDC or reduce your position size.`);
       variants={container}
     >
       {/* Contract Status Indicator */}
-      <ContractStatus />
+      {/* <ContractStatus /> */}
 
       {/* USDC Helper Modal */}
       <USDCHelper isVisible={showUSDCHelper} onClose={() => setShowUSDCHelper(false)} />
