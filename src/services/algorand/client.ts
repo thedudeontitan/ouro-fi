@@ -88,8 +88,8 @@ export class AlgorandClient {
    * Wait for transaction confirmation
    */
   async waitForConfirmation(txId: string, rounds: number = 10): Promise<any> {
-    let status = await this.algodClient.status().do();
-    let lastRound = Number(status.lastRound);
+    const status = await this.algodClient.status().do();
+    const lastRound = Number(status.lastRound);
     let round = lastRound + 1;
 
     while (round < lastRound + rounds) {

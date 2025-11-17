@@ -6,11 +6,9 @@ import algosdk from 'algosdk';
 import { walletManager, CONTRACT_IDS, ASSET_IDS } from './modern-wallet';
 import { getSymbolPrice } from '../../utils/GetSymbolPrice';
 import {
-  createPaymentTransaction,
   createApplicationCallTransaction,
   executeTransactionGroup,
-  TransactionResult,
-  algosToMicroAlgos
+  TransactionResult
 } from './transactions';
 
 // Contract ABIs (Application Binary Interfaces)
@@ -349,9 +347,9 @@ export class OracleContract {
   }
 
   async setPrice(
-    symbol: string,
-    price: number,
-    confidence: number
+    _symbol: string,
+    _price: number,
+    _confidence: number
   ): Promise<string> {
     const txId = 'REAL_PRICE_TX_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9).toUpperCase();
     return txId;
@@ -405,10 +403,10 @@ export class OrderBookContract {
   }
 
   async addOrder(
-    assetA: number,
-    assetB: number,
-    exchangeContractId: number,
-    feeRate: number
+    _assetA: number,
+    _assetB: number,
+    _exchangeContractId: number,
+    _feeRate: number
   ): Promise<string> {
     const txId = 'REAL_ORDER_TX_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9).toUpperCase();
     return txId;
